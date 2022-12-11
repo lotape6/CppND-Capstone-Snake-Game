@@ -1,12 +1,17 @@
-#include "game.h"
-#include <iostream>
 #include "SDL.h"
+#include "game.h"
+#include <chrono>
+#include <iostream>
+#include <thread>
+using namespace std::chrono_literals;
 
 Game::Game(std::size_t grid_width, std::size_t grid_height)
-    : snake(grid_width, grid_height),
-      engine(dev()),
+    : snake(grid_width, grid_height), itemSpawned(false), engine(dev()),
       random_w(0, static_cast<int>(grid_width - 1)),
-      random_h(0, static_cast<int>(grid_height - 1)) {
+      random_h(0, static_cast<int>(grid_height - 1)),
+      specialItemsSpawn(static_cast<int>(SpecialItemType::directionChange),
+                        static_cast<int>(SpecialItemType::noTail)),
+      specialItemsSpawnDelay(MIN_SPAWN_SECS, MAX_SPAWN_SECS) {
   PlaceFood();
 }
 
@@ -18,14 +23,40 @@ void Game::Run(Controller const &controller, Renderer &renderer,
   Uint32 frame_duration;
   int frame_count = 0;
   bool running = true;
+  delay = specialItemsSpawnDelay(engine);
+  futureItem = std::async(std::launch::async, [this]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000 * delay));
+    return PlaceSpecialItem();
+  });
 
   while (running) {
     frame_start = SDL_GetTicks();
 
     // Input, Update, Render - the main game loop.
     controller.HandleInput(running, snake);
-    Update();
-    renderer.Render(snake, food);
+    Update(controller);
+
+    { // Critical Section
+      std::unique_lock<std::mutex>(mtx);
+
+      if (!itemSpawned &&
+          futureItem.wait_for(1ms) == std::future_status::ready) {
+        itemType = futureItem.get();
+        futureItem = std::async(std::launch::async, [this]() {
+          std::this_thread::sleep_for(std::chrono::milliseconds(1000 * delay));
+          return PlaceSpecialItem();
+        });
+      }
+
+      if (itemSpawned) {
+        renderer.Render(
+            snake, food, specialItem,
+            static_cast<unsigned>(itemType) >
+                static_cast<unsigned>(SpecialItemType::solidBorders));
+      } else {
+        renderer.Render(snake, food);
+      }
+    }
 
     frame_end = SDL_GetTicks();
 
@@ -36,6 +67,7 @@ void Game::Run(Controller const &controller, Renderer &renderer,
 
     // After every second, update the window title.
     if (frame_end - title_timestamp >= 1000) {
+      std::unique_lock<std::mutex>(mtx);
       renderer.UpdateWindowTitle(score, frame_count);
       frame_count = 0;
       title_timestamp = frame_end;
@@ -52,9 +84,13 @@ void Game::Run(Controller const &controller, Renderer &renderer,
 
 void Game::PlaceFood() {
   int x, y;
+  std::unique_lock<std::mutex>(mtx);
+
   while (true) {
+
     x = random_w(engine);
     y = random_h(engine);
+
     // Check that the location is not occupied by a snake item before placing
     // food.
     if (!snake.SnakeCell(x, y)) {
@@ -65,8 +101,31 @@ void Game::PlaceFood() {
   }
 }
 
-void Game::Update() {
-  if (!snake.alive) return;
+SpecialItemType Game::PlaceSpecialItem() {
+  std::unique_lock<std::mutex>(mtx);
+  int x, y;
+  delay = specialItemsSpawnDelay(engine);
+
+  while (true) {
+
+    x = random_w(engine);
+    y = random_h(engine);
+
+    // Check that the location is not occupied by a snake item before placing
+    // food.
+    if (!snake.SnakeCell(x, y)) {
+      specialItem.x = x;
+      specialItem.y = y;
+
+      itemSpawned = true;
+      return static_cast<SpecialItemType>(specialItemsSpawnDelay(engine));
+    }
+  }
+}
+
+void Game::Update(Controller const &controller) {
+  if (!snake.alive)
+    return;
 
   snake.Update();
 
@@ -81,6 +140,39 @@ void Game::Update() {
     snake.GrowBody();
     snake.speed += 0.02;
   }
+
+  // Check if item was reached
+  if (itemSpawned && specialItem.x == new_x && specialItem.y == new_y) {
+    std::unique_lock<std::mutex>(mtx);
+
+    ApplyItem(controller);
+
+    itemSpawned = false;
+  }
+}
+
+void Game::ApplyItem(Controller const &controller) {
+
+  // TODO: apply the item and launch a async thread undoing the change
+  // TODO: check where mutex should be added
+
+  switch (itemType) {
+  case SpecialItemType::directionChange:
+    // ...
+    break;
+  case SpecialItemType::speedUp:
+    // ...
+    break;
+  case SpecialItemType::solidBorders:
+    // ...
+    break;
+  case SpecialItemType::slowDown:
+    // ...
+    break;
+  case SpecialItemType::noTail:
+    // ...
+    break;
+  };
 }
 
 int Game::GetScore() const { return score; }

@@ -5,10 +5,8 @@
 Renderer::Renderer(const std::size_t screen_width,
                    const std::size_t screen_height,
                    const std::size_t grid_width, const std::size_t grid_height)
-    : screen_width(screen_width),
-      screen_height(screen_height),
-      grid_width(grid_width),
-      grid_height(grid_height) {
+    : screen_width(screen_width), screen_height(screen_height),
+      grid_width(grid_width), grid_height(grid_height) {
   // Initialize SDL
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
     std::cerr << "SDL could not initialize.\n";
@@ -38,7 +36,8 @@ Renderer::~Renderer() {
   SDL_Quit();
 }
 
-void Renderer::Render(Snake const snake, SDL_Point const &food) {
+void Renderer::Render(Snake const snake, SDL_Point const &food,
+                      SDL_Point const &specialItem, const bool isGood) {
   SDL_Rect block;
   block.w = screen_width / grid_width;
   block.h = screen_height / grid_height;
@@ -71,11 +70,38 @@ void Renderer::Render(Snake const snake, SDL_Point const &food) {
   }
   SDL_RenderFillRect(sdl_renderer, &block);
 
+  // Render Item
+  if (specialItem.x != -1 && specialItem.y != -1) {
+    DrawCircle(specialItem.x * block.w + block.w / 2,
+               specialItem.y * block.w + block.w / 2, block.w / 2, isGood);
+  }
   // Update Screen
   SDL_RenderPresent(sdl_renderer);
 }
 
+// Method found in:
+// https://iq.opengenus.org/getting-started-2d-graphics-in-cpp-sdl2/
+void Renderer::DrawCircle(int center_x, int center_y, int radius_,
+                          bool isGreen) {
+
+  const int red = isGreen ? 0 : 255;
+  const int green = isGreen ? 255 : 0;
+
+  SDL_SetRenderDrawColor(sdl_renderer, red, green, 0, 255);
+
+  // Drawing circle
+  for (int x = center_x - radius_; x <= center_x + radius_; x++) {
+    for (int y = center_y - radius_; y <= center_y + radius_; y++) {
+      if ((std::pow(center_y - y, 2) + std::pow(center_x - x, 2)) <=
+          std::pow(radius_, 2)) {
+        SDL_RenderDrawPoint(sdl_renderer, x, y);
+      }
+    }
+  }
+}
+
 void Renderer::UpdateWindowTitle(int score, int fps) {
-  std::string title{"Snake Score: " + std::to_string(score) + " FPS: " + std::to_string(fps)};
+  std::string title{"Snake Score: " + std::to_string(score) +
+                    " FPS: " + std::to_string(fps)};
   SDL_SetWindowTitle(sdl_window, title.c_str());
 }
