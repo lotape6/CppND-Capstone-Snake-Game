@@ -37,7 +37,8 @@ Renderer::~Renderer() {
 }
 
 void Renderer::Render(Snake const snake, SDL_Point const &food,
-                      SDL_Point const &specialItem, const bool isGood) {
+                      const bool borders, SDL_Point const &specialItem,
+                      const bool isGood) {
   SDL_Rect block;
   block.w = screen_width / grid_width;
   block.h = screen_height / grid_height;
@@ -53,11 +54,13 @@ void Renderer::Render(Snake const snake, SDL_Point const &food,
   SDL_RenderFillRect(sdl_renderer, &block);
 
   // Render snake's body
-  SDL_SetRenderDrawColor(sdl_renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-  for (SDL_Point const &point : snake.body) {
-    block.x = point.x * block.w;
-    block.y = point.y * block.h;
-    SDL_RenderFillRect(sdl_renderer, &block);
+  if (!snake.HideTail()) {
+    SDL_SetRenderDrawColor(sdl_renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+    for (SDL_Point const &point : snake.body) {
+      block.x = point.x * block.w;
+      block.y = point.y * block.h;
+      SDL_RenderFillRect(sdl_renderer, &block);
+    }
   }
 
   // Render snake's head
@@ -74,6 +77,37 @@ void Renderer::Render(Snake const snake, SDL_Point const &food,
   if (specialItem.x != -1 && specialItem.y != -1) {
     DrawCircle(specialItem.x * block.w + block.w / 2,
                specialItem.y * block.w + block.w / 2, block.w / 2, isGood);
+  }
+
+  // Render borders
+  if (borders) {
+    SDL_SetRenderDrawColor(sdl_renderer, 0xF0, 0x00, 0x00, 0x10);
+    SDL_Rect vertical, horizontal;
+    horizontal.w = 5;
+    horizontal.h = screen_height;
+
+    vertical.w = screen_width;
+    vertical.h = 5;
+
+    // Up
+    horizontal.x = 0;
+    horizontal.y = 0;
+    SDL_RenderFillRect(sdl_renderer, &horizontal);
+
+    // Left
+    vertical.x = 0;
+    vertical.y = 0;
+    SDL_RenderFillRect(sdl_renderer, &vertical);
+
+    // Down
+    horizontal.x = screen_height - 5;
+    horizontal.y = 0;
+    SDL_RenderFillRect(sdl_renderer, &horizontal);
+
+    // Right
+    vertical.x = 0;
+    vertical.y = screen_width - 5;
+    SDL_RenderFillRect(sdl_renderer, &vertical);
   }
   // Update Screen
   SDL_RenderPresent(sdl_renderer);

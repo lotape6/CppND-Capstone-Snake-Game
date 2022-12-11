@@ -13,7 +13,7 @@
 #define MIN_SPAWN_SECS 1
 #define MAX_SPAWN_SECS 3
 
-#define BOOST_DURATION_SECONDS 3
+#define ITEM_EFFECT_DURATION_SECONDS 3
 
 enum SpecialItemType : unsigned {
   directionChange = 0,
@@ -28,7 +28,7 @@ using TimePoint = std::chrono::time_point<std::chrono::system_clock>;
 class Game {
 public:
   Game(std::size_t grid_width, std::size_t grid_height);
-  void Run(Controller const &controller, Renderer &renderer,
+  void Run(Controller &controller, Renderer &renderer,
            std::size_t target_frame_duration);
   int GetScore() const;
   int GetSize() const;
@@ -40,11 +40,14 @@ private:
 
   std::mutex mtx;
   std::future<SpecialItemType> futureItem;
+  std::future<void> undoItemEffect;
 
   bool itemSpawned;
   SpecialItemType itemType;
 
   int delay;
+
+  bool solidBorders;
 
   std::random_device dev;
   std::mt19937 engine;
@@ -58,9 +61,9 @@ private:
 
   void PlaceFood();
   SpecialItemType PlaceSpecialItem();
-  void Update(Controller const &controller);
+  void Update(Controller &controller);
 
-  void ApplyItem(Controller const &controller);
+  void ApplyItem(Controller &controller);
 };
 
 #endif

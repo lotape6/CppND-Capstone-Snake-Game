@@ -11,7 +11,7 @@ public:
            const std::size_t grid_width, const std::size_t grid_height);
   ~Renderer();
 
-  void Render(Snake const snake, SDL_Point const &food,
+  void Render(Snake const snake, SDL_Point const &food, const bool borders,
               SDL_Point const &specialItem = {-1, -1},
               const bool isGood = false);
   void UpdateWindowTitle(int score, int fps);

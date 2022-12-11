@@ -2,12 +2,13 @@
 #include "game.h"
 #include <chrono>
 #include <iostream>
+#include <random>
 #include <thread>
 using namespace std::chrono_literals;
 
 Game::Game(std::size_t grid_width, std::size_t grid_height)
-    : snake(grid_width, grid_height), itemSpawned(false), engine(dev()),
-      random_w(0, static_cast<int>(grid_width - 1)),
+    : snake(grid_width, grid_height), itemSpawned(false), solidBorders(false),
+      engine(dev()), random_w(0, static_cast<int>(grid_width - 1)),
       random_h(0, static_cast<int>(grid_height - 1)),
       specialItemsSpawn(static_cast<int>(SpecialItemType::directionChange),
                         static_cast<int>(SpecialItemType::noTail)),
@@ -15,7 +16,7 @@ Game::Game(std::size_t grid_width, std::size_t grid_height)
   PlaceFood();
 }
 
-void Game::Run(Controller const &controller, Renderer &renderer,
+void Game::Run(Controller &controller, Renderer &renderer,
                std::size_t target_frame_duration) {
   Uint32 title_timestamp = SDL_GetTicks();
   Uint32 frame_start;
@@ -29,6 +30,10 @@ void Game::Run(Controller const &controller, Renderer &renderer,
     return PlaceSpecialItem();
   });
 
+  undoItemEffect = std::async(std::launch::async, [this]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  });
+
   while (running) {
     frame_start = SDL_GetTicks();
 
@@ -39,6 +44,7 @@ void Game::Run(Controller const &controller, Renderer &renderer,
     { // Critical Section
       std::unique_lock<std::mutex>(mtx);
 
+      undoItemEffect.wait_for(1ms);
       if (!itemSpawned &&
           futureItem.wait_for(1ms) == std::future_status::ready) {
         itemType = futureItem.get();
@@ -50,11 +56,11 @@ void Game::Run(Controller const &controller, Renderer &renderer,
 
       if (itemSpawned) {
         renderer.Render(
-            snake, food, specialItem,
+            snake, food, solidBorders, specialItem,
             static_cast<unsigned>(itemType) >
                 static_cast<unsigned>(SpecialItemType::solidBorders));
       } else {
-        renderer.Render(snake, food);
+        renderer.Render(snake, food, solidBorders);
       }
     }
 
@@ -104,6 +110,8 @@ void Game::PlaceFood() {
 SpecialItemType Game::PlaceSpecialItem() {
   std::unique_lock<std::mutex>(mtx);
   int x, y;
+
+  // update next delay time (seconds)
   delay = specialItemsSpawnDelay(engine);
 
   while (true) {
@@ -118,12 +126,13 @@ SpecialItemType Game::PlaceSpecialItem() {
       specialItem.y = y;
 
       itemSpawned = true;
-      return static_cast<SpecialItemType>(specialItemsSpawnDelay(engine));
+      return static_cast<SpecialItemType>(
+          rand() % (static_cast<int>(SpecialItemType::noTail) + 1));
     }
   }
 }
 
-void Game::Update(Controller const &controller) {
+void Game::Update(Controller &controller) {
   if (!snake.alive)
     return;
 
@@ -151,26 +160,59 @@ void Game::Update(Controller const &controller) {
   }
 }
 
-void Game::ApplyItem(Controller const &controller) {
-
-  // TODO: apply the item and launch a async thread undoing the change
-  // TODO: check where mutex should be added
+void Game::ApplyItem(Controller &controller) {
 
   switch (itemType) {
   case SpecialItemType::directionChange:
-    // ...
+    controller.InvertControls();
+
+    // launch delayed action to undo effect
+    undoItemEffect = std::async(std::launch::async, [this, &controller]() {
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
+      controller.NormalControls();
+    });
     break;
   case SpecialItemType::speedUp:
-    // ...
+    snake.speed = 1.75 * snake.speed;
+    // launch delayed action to undo effect
+    undoItemEffect = std::async(std::launch::async, [this]() {
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
+      snake.speed = snake.speed / 1.75;
+    });
     break;
   case SpecialItemType::solidBorders:
-    // ...
+    snake.WrapBorders(false);
+    solidBorders = true;
+    // launch delayed action to undo effect
+    undoItemEffect = std::async(std::launch::async, [this]() {
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
+      snake.WrapBorders(true);
+      solidBorders = false;
+    });
     break;
   case SpecialItemType::slowDown:
-    // ...
+    snake.speed = 0.75 * snake.speed;
+
+    // launch delayed action to undo effect
+    undoItemEffect = std::async(std::launch::async, [this]() {
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
+      snake.speed = snake.speed / 0.75;
+    });
     break;
   case SpecialItemType::noTail:
-    // ...
+    snake.HideTail(true);
+    // launch delayed action to undo effect
+    undoItemEffect = std::async(std::launch::async, [this]() {
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
+      snake.HideTail(false);
+    });
+    break;
+  default:
     break;
   };
 }
