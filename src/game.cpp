@@ -7,8 +7,9 @@
 using namespace std::chrono_literals;
 
 Game::Game(std::size_t grid_width, std::size_t grid_height)
-    : snake(grid_width, grid_height), itemSpawned(false), solidBorders(false),
-      engine(dev()), random_w(0, static_cast<int>(grid_width - 1)),
+    : snake(grid_width, grid_height), undoItemEffect(false), itemSpawned(false),
+      solidBorders(false), engine(dev()),
+      random_w(0, static_cast<int>(grid_width - 1)),
       random_h(0, static_cast<int>(grid_height - 1)),
       specialItemsSpawn(static_cast<int>(SpecialItemType::directionChange),
                         static_cast<int>(SpecialItemType::noTail)),
@@ -30,10 +31,6 @@ void Game::Run(Controller &controller, Renderer &renderer,
     return PlaceSpecialItem();
   });
 
-  undoItemEffect = std::async(std::launch::async, [this]() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  });
-
   while (running) {
     frame_start = SDL_GetTicks();
 
@@ -44,7 +41,11 @@ void Game::Run(Controller &controller, Renderer &renderer,
     { // Critical Section
       std::unique_lock<std::mutex>(mtx);
 
-      undoItemEffect.wait_for(1ms);
+      if (undoItemEffect &&
+          undoFuture.wait_for(1ms) == std::future_status::ready) {
+        undoFuture.get();
+        undoItemEffect = false;
+      }
       if (!itemSpawned &&
           futureItem.wait_for(1ms) == std::future_status::ready) {
         itemType = futureItem.get();
@@ -167,50 +168,74 @@ void Game::ApplyItem(Controller &controller) {
     controller.InvertControls();
 
     // launch delayed action to undo effect
-    undoItemEffect = std::async(std::launch::async, [this, &controller]() {
+    undoFuture = std::async(std::launch::async, [this, &controller]() {
       std::this_thread::sleep_for(
           std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
-      controller.NormalControls();
+      {
+        std::unique_lock<std::mutex>(mtx);
+        controller.NormalControls();
+      }
+      return;
     });
+    undoItemEffect = true;
     break;
   case SpecialItemType::speedUp:
     snake.speed = 1.75 * snake.speed;
     // launch delayed action to undo effect
-    undoItemEffect = std::async(std::launch::async, [this]() {
+    undoFuture = std::async(std::launch::async, [this]() {
       std::this_thread::sleep_for(
           std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
-      snake.speed = snake.speed / 1.75;
+      {
+        std::unique_lock<std::mutex>(mtx);
+        snake.speed = snake.speed / 1.75;
+      }
+      return;
     });
+    undoItemEffect = true;
     break;
   case SpecialItemType::solidBorders:
     snake.WrapBorders(false);
     solidBorders = true;
     // launch delayed action to undo effect
-    undoItemEffect = std::async(std::launch::async, [this]() {
+    undoFuture = std::async(std::launch::async, [this]() {
       std::this_thread::sleep_for(
           std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
-      snake.WrapBorders(true);
+      {
+        std::unique_lock<std::mutex>(mtx);
+        snake.WrapBorders(true);
+      }
       solidBorders = false;
+      undoItemEffect = true;
     });
     break;
   case SpecialItemType::slowDown:
     snake.speed = 0.75 * snake.speed;
 
     // launch delayed action to undo effect
-    undoItemEffect = std::async(std::launch::async, [this]() {
+    undoFuture = std::async(std::launch::async, [this]() {
       std::this_thread::sleep_for(
           std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
-      snake.speed = snake.speed / 0.75;
+      {
+        std::unique_lock<std::mutex>(mtx);
+        snake.speed = snake.speed / 0.75;
+      }
+      return;
     });
+    undoItemEffect = true;
     break;
   case SpecialItemType::noTail:
     snake.HideTail(true);
     // launch delayed action to undo effect
-    undoItemEffect = std::async(std::launch::async, [this]() {
+    undoFuture = std::async(std::launch::async, [this]() {
       std::this_thread::sleep_for(
           std::chrono::milliseconds(1000 * ITEM_EFFECT_DURATION_SECONDS));
-      snake.HideTail(false);
+      {
+        std::unique_lock<std::mutex>(mtx);
+        snake.HideTail(false);
+      }
+      return;
     });
+    undoItemEffect = true;
     break;
   default:
     break;

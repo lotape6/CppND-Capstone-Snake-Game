@@ -40,7 +40,9 @@ private:
 
   std::mutex mtx;
   std::future<SpecialItemType> futureItem;
-  std::future<void> undoItemEffect;
+  std::future<void> undoFuture;
+
+  bool undoItemEffect;
 
   bool itemSpawned;
   SpecialItemType itemType;
